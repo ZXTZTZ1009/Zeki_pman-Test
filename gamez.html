@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Flappy Zeki</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      background: #f5f5f5;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      user-select: none;
+    }
+    .game-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      padding: 16px;
+    }
+    .game-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      width: 100%;
+      max-width: 360px;
+    }
+    .game-name {
+      font-size: 18px;
+      font-weight: 600;
+      color: #111;
+    }
+    .score-board {
+      font-size: 14px;
+      color: #666;
+    }
+    .score-board span {
+      font-weight: 600;
+      color: #111;
+      font-variant-numeric: tabular-nums;
+    }
+    canvas {
+      border: 2px solid #111;
+      border-radius: 8px;
+      background: linear-gradient(to bottom, #87CEEB 0%, #E0F6FF 100%);
+      cursor: pointer;
+      display: block;
+    }
+    .hint {
+      font-size: 12px;
+      color: #999;
+    }
+    .overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0,0,0,0.55);
+      border-radius: 8px;
+      gap: 10px;
+    }
+    .overlay-title {
+      color: #fff;
+      font-size: 22px;
+      font-weight: 600;
+    }
+    .overlay-sub {
+      color: rgba(255,255,255,0.85);
+      font-size: 14px;
+    }
+    .btn {
+      padding: 8px 22px;
+      border: 1.5px solid #fff;
+      background: transparent;
+      color: #fff;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .btn:hover {
+      background: #fff;
+      color: #000;
+    }
+    .canvas-box {
+      position: relative;
+      display: inline-block;
+    }
+  </style>
+</head>
+<body>
+  <div class="game-wrap">
+    <div class="game-bar">
+      <div class="game-name">Flappy Zeki</div>
+      <div class="score-board">score: <span id="sc">0</span> | best: <span id="best">0</span></div>
+    </div>
+    <div class="canvas-box">
+      <canvas id="c" width="360" height="520"></canvas>
+      <div class="overlay" id="ov">
+        <div class="overlay-title" id="ovt">Flappy Zeki</div>
+        <div class="overlay-sub">Tap, click, or press space to flap</div>
+        <button class="btn" id="sb">Start</button>
+      </div>
+    </div>
+    <div class="hint">Space / click / tap to jump</div>
+  </div>
+
+  <script>
+    (function(){
+      const c = document.getElementById('c');
+      const x = c.getContext('2d');
+      const ov = document.getElementById('ov');
+      const ovt = document.getElementById('ovt');
+      const sb = document.getElementById('sb');
+      const scEl = document.getElementById('sc');
+      const bestEl = document.getElementById('best');
+
+      const W = 360, H = 520;
+      const G = 0.35;
+      const JUMP = -6.5;
+      const PIPE_W = 56;
+      const PIPE_GAP = 130;
+      const PIPE_SPAWN = 160;
+      const GROUND_H = 40;
+      const ZEKI_W = 52;
+      const ZEKI_H = 28;
+
+      let state = 'menu';
+      let zeki = { y: H/2, vy: 0, rot: 0 };
+      let pipes = [];
+      let score = 0;
+      let best = parseInt(localStorage.getItem('flappy_zeki_best') || '0');
+      let frame = 0;
+      let loopId = null;
+      let clouds = [];
+
+      bestEl.textContent = best;
+
+      function reset() {
+        zeki = { y: H/2, vy: 0, rot: 0 };
+        pipes = [];
+        score = 0;
+        frame = 0;
+        scEl.textContent = '0';
+        clouds = [];
+        for (let i = 0; i < 5; i++) {
+          clouds.push({ x: Math.random() * W, y: 30 + Math.random() * 120, s: 0.3 + Math.random() * 0.5, w: 40 + Math.random() * 40 });
+        }
+      }
+
+      function jump() {
+        if (state === 'menu') { start(); return; }
+        if (state === 'over') {
+          reset();
+          state = 'menu';
+          draw();
+          ov.style.display = 'flex';
+          ovt.textContent = 'Flappy Zeki';
+          sb.textContent = 'Start';
+          return;
+        }
+        zeki.vy = JUMP;
+      }
+
+      function start() {
+        reset();
+        state = 'play';
+        ov.style.display = 'none';
+        loopId = requestAnimationFrame(loop);
+      }
+
+      function gameOver() {
+        state = 'over';
+        cancelAnimationFrame(loopId);
+        if (score > best) {
+          best = score;
+          localStorage.setItem('flappy_zeki_best', best);
+          bestEl.textContent = best;
+        }
+        ov.style.display = 'flex';
+        ovt.textContent = 'Score: ' + score;
+        sb.textContent = 'Try again';
+      }
+
+      function update() {
+        frame++;
+        zeki.vy += G;
+        zeki.y += zeki.vy;
+        zeki.rot = Math.min(Math.PI / 4, Math.max(-Math.PI / 4, zeki.vy * 0.08));
+
+        if (zeki.y + ZEKI_H/2 >= H - GROUND_H || zeki.y - ZEKI_H/2 <= 0) {
+          gameOver(); return;
+        }
+
+        if (frame % PIPE_SPAWN === 0) {
+          let minH = 60;
+          let maxH = H - GROUND_H - PIPE_GAP - minH;
+          let topH = minH + Math.random() * (maxH - minH);
+          pipes.push({ x: W, topH: topH, passed: false });
+        }
+
+        for (let p of pipes) {
+          p.x -= 2.5;
+          let zx = 80;
+          let zy = zeki.y;
+          let inPipeX = zx + ZEKI_W/2 > p.x && zx - ZEKI_W/2 < p.x + PIPE_W;
+          let hitTop = zy - ZEKI_H/2 < p.topH;
+          let hitBot = zy + ZEKI_H/2 > p.topH + PIPE_GAP;
+          if (inPipeX && (hitTop || hitBot)) {
+            gameOver(); return;
+          }
+          if (!p.passed && p.x + PIPE_W < zx - ZEKI_W/2) {
+            p.passed = true;
+            score++;
+            scEl.textContent = score;
+          }
+        }
+        pipes = pipes.filter(p => p.x + PIPE_W > -10);
+
+        for (let cl of clouds) {
+          cl.x -= 0.4 * cl.s;
+          if (cl.x + cl.w < 0) cl.x = W + cl.w;
+        }
+      }
+
+      function drawPipe(px, topH) {
+        let grad = x.createLinearGradient(px, 0, px + PIPE_W, 0);
+        grad.addColorStop(0, '#2d8a3e');
+        grad.addColorStop(0.5, '#4ade80');
+        grad.addColorStop(1, '#2d8a3e');
+        x.fillStyle = grad;
+        x.fillRect(px, 0, PIPE_W, topH);
+
+        x.fillStyle = '#3cb853';
+        x.fillRect(px - 3, topH - 18, PIPE_W + 6, 18);
+        x.strokeStyle = '#1a5c26';
+        x.lineWidth = 2;
+        x.strokeRect(px - 3, topH - 18, PIPE_W + 6, 18);
+        x.strokeRect(px, 0, PIPE_W, topH);
+
+        let botY = topH + PIPE_GAP;
+        let botH = H - GROUND_H - botY;
+        x.fillStyle = grad;
+        x.fillRect(px, botY, PIPE_W, botH);
+        x.fillStyle = '#3cb853';
+        x.fillRect(px - 3, botY, PIPE_W + 6, 18);
+        x.strokeRect(px - 3, botY, PIPE_W + 6, 18);
+        x.strokeRect(px, botY, PIPE_W, botH);
+      }
+
+      function draw() {
+        let sky = x.createLinearGradient(0, 0, 0, H);
+        sky.addColorStop(0, '#87CEEB');
+        sky.addColorStop(1, '#E0F6FF');
+        x.fillStyle = sky;
+        x.fillRect(0, 0, W, H);
+
+        x.fillStyle = 'rgba(255,255,255,0.7)';
+        for (let cl of clouds) {
+          x.beginPath();
+          x.ellipse(cl.x, cl.y, cl.w, cl.w * 0.4, 0, 0, Math.PI * 2);
+          x.fill();
+        }
+
+        for (let p of pipes) drawPipe(p.x, p.topH);
+
+        x.fillStyle = '#d4a76a';
+        x.fillRect(0, H - GROUND_H, W, GROUND_H);
+        x.fillStyle = '#c49a5e';
+        for (let i = 0; i < W; i += 20) x.fillRect(i, H - GROUND_H, 2, GROUND_H);
+        x.fillStyle = '#7cb342';
+        x.fillRect(0, H - GROUND_H, W, 6);
+
+        x.save();
+        x.translate(80, zeki.y);
+        x.rotate(zeki.rot);
+
+        x.strokeStyle = '#fff';
+        x.lineWidth = 3;
+        x.font = 'bold 22px system-ui, sans-serif';
+        x.textAlign = 'center';
+        x.textBaseline = 'middle';
+        x.strokeText('Zeki', 0, 0);
+        x.fillStyle = '#111';
+        x.fillText('Zeki', 0, 0);
+
+        x.restore();
+      }
+
+      function loop() {
+        if (state !== 'play') return;
+        update();
+        draw();
+        loopId = requestAnimationFrame(loop);
+      }
+
+      sb.addEventListener('click', () => {
+        if (state === 'menu') start();
+        else if (state === 'over') {
+          reset();
+          state = 'menu';
+          draw();
+          ov.style.display = 'flex';
+          ovt.textContent = 'Flappy Zeki';
+          sb.textContent = 'Start';
+        }
+      });
+
+      c.addEventListener('mousedown', jump);
+      c.addEventListener('touchstart', (e) => { e.preventDefault(); jump(); }, {passive: false});
+      document.addEventListener('keydown', (e) => { if (e.code === 'Space') { e.preventDefault(); jump(); } });
+
+      reset();
+      draw();
+    })();
+  </script>
+</body>
+</html>
